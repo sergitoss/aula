@@ -1,17 +1,15 @@
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-import geopandas as gpd
 import json
-from datetime import datetime
 import numpy as np
 import folium
 from streamlit_folium import st_folium
-from uuid import uuid4
 import copy
+from datetime import datetime
 
 # ============================================
-# FUNÇÕES E CONFIGURAÇÕES INICIAIS
+# FUNÇÕES PRINCIPAIS
 # ============================================
 
 @st.cache_data
@@ -29,6 +27,24 @@ def carregar_dados_agua():
         'longitude': np.random.uniform(-47.8, -48.0, num_registros)
     }
     return pd.DataFrame(dados)
+
+def criar_mapa(features):
+    """Função para criar o mapa Folium"""
+    m = folium.Map(location=[-15.8, -47.9], zoom_start=11)
+    for feature in features:
+        nome = feature['properties']['name']
+        coords = feature['geometry']['coordinates']
+        folium.Marker(
+            location=[coords[1], coords[0]],
+            popup=nome,
+            tooltip=f"Ponto: {nome}",
+            icon=folium.Icon(color='blue', icon='tint')
+        ).add_to(m)
+    return m
+
+# ============================================
+# CONFIGURAÇÕES
+# ============================================
 
 parametros = {
     "Temperatura": "temperatura",
@@ -52,7 +68,7 @@ limites = {
 }
 
 # ============================================
-# SIDEBAR
+# BARRA LATERAL
 # ============================================
 
 with st.sidebar:
@@ -85,21 +101,12 @@ with st.sidebar:
             }
             if 'pontos_geojson' not in st.session_state:
                 st.session_state['pontos_geojson'] = {"type": "FeatureCollection", "features": []}
-            features = st.session_state['pontos_geojson']['features']
-            features.append(novo_ponto)
-            st.session_state['pontos_geojson'] = {
-                "type": "FeatureCollection",
-                "features": features
-            }
+            st.session_state['pontos_geojson']['features'].append(novo_ponto)
             st.success(f"Ponto {nome_ponto} adicionado!")
             st.rerun()
 
-    if st.button("Baixar pontos GeoJSON"):
-        geojson_str = json.dumps(st.session_state['pontos_geojson'])
-        st.download_button("Download GeoJSON", geojson_str, file_name="pontos.geojson", mime="application/json")
-
 # ============================================
-# DADOS
+# CARREGAMENTO DE DADOS
 # ============================================
 
 df = carregar_dados_agua()
@@ -116,46 +123,36 @@ if 'pontos_geojson' not in st.session_state:
     st.session_state['pontos_geojson'] = {"type": "FeatureCollection", "features": []}
 
 # ============================================
-# INTERFACE PRINCIPAL
+# PÁGINA PRINCIPAL
 # ============================================
 
 st.title('LAGEOS - Monitoramento da Qualidade da Água')
 st.markdown('**Laboratório de Geoprocessamento e Sensoriamento Remoto**')
 
+# Mapa
 st.header("Mapa de Pontos de Coleta")
-m = folium.Map(location=[-15.8, -47.9], zoom_start=11)
+mapa = criar_mapa(st.session_state['pontos_geojson']['features'])
+st_folium(mapa, width=700, height=500, key="mapa_principal", use_container_width=True)
 
-if st.session_state['pontos_geojson']['features']:
-    for feature in st.session_state['pontos_geojson']['features']:
-        nome = feature['properties']['name']
-        coords = feature['geometry']['coordinates']
-        folium.Marker(
-            location=[coords[1], coords[0]],
-            popup=nome,
-            tooltip=f"Ponto: {nome}",
-            icon=folium.Icon(color='blue', icon='tint')
-        ).add_to(m)
-
-map_key = str(uuid4())
-st_folium(m, width=700, height=500, key=map_key)
-
-# ============================================
-# ANÁLISE
-# ============================================
-
+# Seleção de parâmetros
 parametro_analise = st.sidebar.selectbox("Selecione o parâmetro para análise", list(parametros.keys()))
 coluna = parametros[parametro_analise]
 
+# Filtro por período
 periodo = st.sidebar.date_input("Selecione o período de análise", [df['data'].min(), df['data'].max()])
 if len(periodo) == 2:
-    filtro = (df['data'] >= pd.to_datetime(periodo[0])) & (df['data'] <= pd.to_datetime(periodo[1]))
-    df_filtrado = df.loc[filtro].copy()
+    df_filtrado = df[(df['data'] >= pd.to_datetime(periodo[0])) & (df['data'] <= pd.to_datetime(periodo[1]))]
 else:
     st.warning("Selecione um intervalo de datas válido.")
     df_filtrado = df.copy()
 
+# ============================================
+# ANÁLISE DOS DADOS
+# ============================================
+
 st.header(f"Análise de {parametro_analise}")
 
+# Gráfico temporal
 fig_temporal = px.line(
     df_filtrado,
     x='data',
@@ -167,6 +164,7 @@ fig_temporal = px.line(
 )
 st.plotly_chart(fig_temporal, use_container_width=True)
 
+# Métricas
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Média", f"{df_filtrado[coluna].mean():.2f} {unidades[parametro_analise]}")
@@ -177,36 +175,53 @@ with col3:
 with col4:
     st.metric("Desvio Padrão", f"{df_filtrado[coluna].std():.2f} {unidades[parametro_analise]}")
 
-st.subheader(f"Distribuição de {parametro_analise} por ponto de coleta")
-fig_boxplot = px.box(
-    df_filtrado,
-    x='localizacao',
-    y=coluna,
-    color='localizacao',
-    labels={coluna: f"{parametro_analise} ({unidades[parametro_analise]})"}
+# Boxplot comparativo
+st.subheader(" Comparativo por Local")
+fig_box = px.box(
+    df_filtrado, 
+    x='localizacao', 
+    y=coluna, 
+    color='localizacao', 
+    points='all',
+    title=f"Distribuição de {parametro_analise} por Localização",
+    labels={
+        'localizacao': 'Ponto de Coleta',
+        coluna: f"{parametro_analise} ({unidades[parametro_analise]})"
+    }
 )
-st.plotly_chart(fig_boxplot, use_container_width=True)
-
-st.subheader("📊 Comparativo por Local")
-fig_box = px.box(df, x='localizacao', y=param, color='localizacao', points='all')
 st.plotly_chart(fig_box, use_container_width=True)
 
-
+# Análise de correlação
 st.subheader("Correlação entre parâmetros")
 matriz_correlacao = df_filtrado[['temperatura', 'ph', 'condutividade', 'turbidez']].corr()
-fig_correlacao = px.imshow(matriz_correlacao, text_auto=True, color_continuous_scale="Blues")
+fig_correlacao = px.imshow(
+    matriz_correlacao, 
+    text_auto=True, 
+    color_continuous_scale="Blues",
+    title="Matriz de Correlação entre Parâmetros"
+)
 st.plotly_chart(fig_correlacao, use_container_width=True)
 
+# Índice de Qualidade da Água
 st.subheader("Índice de Qualidade da Água (IQA simplificado)")
 df_filtrado['iqa'] = (
     (df_filtrado['temperatura'].clip(0, 30) / 30 * 0.15) +
     ((df_filtrado['ph'].clip(6, 9) - 6) / 3 * 0.25) +
-    ((1 - (df_filtrado['condutividade'].clip(0, 1000) / 1000)) * 0.30) +
-    ((1 - (df_filtrado['turbidez'].clip(0, 50) / 50)) * 0.30)
+    (1 - (df_filtrado['condutividade'].clip(0, 1000) / 1000)) * 0.30 +
+    (1 - (df_filtrado['turbidez'].clip(0, 50) / 50)) * 0.30
 ) * 100
-fig_iqa = px.line(df_filtrado, x='data', y='iqa', color='localizacao', labels={'iqa': 'IQA (0-100)'}, range_y=[0, 100])
+fig_iqa = px.line(
+    df_filtrado, 
+    x='data', 
+    y='iqa', 
+    color='localizacao', 
+    labels={'iqa': 'IQA (0-100)'}, 
+    range_y=[0, 100],
+    title="Variação do Índice de Qualidade da Água"
+)
 st.plotly_chart(fig_iqa, use_container_width=True)
 
+# Alertas
 st.subheader("Alertas de Qualidade da Água")
 if parametro_analise in limites:
     limite = limites[parametro_analise]
@@ -228,10 +243,9 @@ else:
     st.info("Limites não definidos para este parâmetro")
 
 # Sobre o projeto
-with st.expander("👑 Sobre o Projeto "):
+with st.expander("👑 Sobre o Projeto"):
     st.markdown("""
-    Este painel foi desenvolvido para o **Plataforma de monitoramento Abiental**, focado no monitoramento ambiental de corpos d'água
+    Este painel foi desenvolvido para o **Plataforma de monitoramento Ambiental**, focado no monitoramento ambiental de corpos d'água
     utilizando sensores conectados (Arduino), com análise de qualidade da água (IQA), visualização geográfica
     e gráficos interativos para facilitar a tomada de decisão. 💧💻🌍
-
     """)
