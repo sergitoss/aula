@@ -1,30 +1,30 @@
-# Importação de bibliotecas
-import pandas as pd  # Para manipulação de dados tabulares (DataFrames)
-import geopandas as gpd  # Para trabalhar com dados geoespaciais (mapas vetoriais)
-import streamlit as st  # Framework para criar aplicações web interativas
-import plotly.express as px  # Para criação de gráficos interativos e visualizações
-import folium  # Biblioteca para criação de mapas interativos (não usado diretamente aqui)
+# ==============================================
+# 1. Importação de bibliotecas
+# ==============================================
+import pandas as pd            # Para manipulação de dados tabulares (DataFrames)
+import geopandas as gpd        # Para trabalhar com dados geoespaciais (mapas vetoriais)
+import streamlit as st         # Framework para criar aplicações web interativas
+import plotly.express as px    # Para criação de gráficos interativos e visualizações
+import folium                 # Biblioteca para criação de mapas interativos (mesmo que não seja usado diretamente)
 from streamlit_folium import folium_static  # Para exibir mapas do Folium no Streamlit (não usado aqui)
 
 # ==============================================
-# 1. FUNÇÕES DE CARREGAMENTO DE DADOS
+# 2. FUNÇÕES DE CARREGAMENTO DE DADOS
 # ==============================================
-
 # Decorador que armazena os dados em cache para melhor performance
 @st.cache_data
 def load_geodata():
     """Carrega o arquivo GeoJSON com os polígonos dos estados brasileiros"""
-    return gpd.read_file('assets/BR_UF_2020_filtrado.geojson')  # Retorna um GeoDataFrame
+    return gpd.read_file('assets/BR_UF_2020_filtrado.geojson')  # GeoDataFrame
 
 @st.cache_data
 def load_data():
     """Carrega os dados de seguros no formato Parquet (otimizado para leitura)"""
-    return pd.read_parquet('assets/dados_test.parquet')  # Retorna um DataFrame
+    return pd.read_parquet('assets/dados_test.parquet')  # DataFrame
 
 # ==============================================
-# 2. CARREGAMENTO E PREPARAÇÃO DOS DADOS
+# 3. CARREGAMENTO E PREPARAÇÃO DOS DADOS
 # ==============================================
-
 # Carrega os datasets chamando as funções definidas acima
 gdf = load_geodata()  # GeoDataFrame com geometrias dos estados
 df = load_data()      # DataFrame com dados de seguros agrícolas
@@ -36,30 +36,29 @@ cols_numericas = ['NR_AREA_TOTAL', 'VL_PREMIO_LIQUIDO']
 df[cols_numericas] = df[cols_numericas].replace(',', '.', regex=True).astype(float)
 
 # ==============================================
-# 3. PROCESSAMENTO E AGREGAÇÃO DOS DADOS
+# 4. PROCESSAMENTO E AGREGAÇÃO DOS DADOS
 # ==============================================
-
 # Agrupa os dados por estado (SG_UF_PROPRIEDADE) e calcula métricas agregadas
 df_estado = df.groupby('SG_UF_PROPRIEDADE').agg(
-    area_total=('NR_AREA_TOTAL', 'sum'),  # Soma a área total por estado
-    valor_total=('VL_PREMIO_LIQUIDO', 'sum'),  # Soma o valor total por estado
-    numero_seguros=('NR_APOLICE', 'nunique')  # Conta apólices únicas por estado
-).reset_index()  # Transforma o índice em coluna novamente
+    area_total=('NR_AREA_TOTAL', 'sum'),       # Soma a área total por estado
+    valor_total=('VL_PREMIO_LIQUIDO', 'sum'),    # Soma o valor total por estado
+    numero_seguros=('NR_APOLICE', 'nunique')     # Conta apólices únicas por estado
+).reset_index()
 
 # Combina os dados geográficos com os dados agregados por estado
 gdf_merged = gdf.merge(
     df_estado, 
-    left_on='SIGLA_UF',  # Coluna do GeoDataFrame
-    right_on='SG_UF_PROPRIEDADE',  # Coluna do DataFrame
-    how='left'  # Mantém todos os estados mesmo sem dados
+    left_on='SIGLA_UF',              # Coluna do GeoDataFrame
+    right_on='SG_UF_PROPRIEDADE',      # Coluna do DataFrame
+    how='left'                       # Mantém todos os estados mesmo sem dados
 )
 
 # Agrupa os dados por razão social (nome da empresa)
 df_razao_social = df.groupby('NM_RAZAO_SOCIAL').agg(
     numero_seguros=('NR_APOLICE', 'nunique'),  # Conta apólices únicas
-    area_total=('NR_AREA_TOTAL', 'sum'),  # Soma a área total
-    valor_total=('VL_PREMIO_LIQUIDO', 'sum'),  # Soma o valor total
-    estados=('SG_UF_PROPRIEDADE', 'unique')  # Lista de estados onde atua
+    area_total=('NR_AREA_TOTAL', 'sum'),         # Soma a área total
+    valor_total=('VL_PREMIO_LIQUIDO', 'sum'),      # Soma o valor total
+    estados=('SG_UF_PROPRIEDADE', 'unique')       # Lista de estados onde atua
 ).reset_index()
 
 # Adiciona coluna com contagem de estados por empresa
@@ -91,13 +90,12 @@ for col in cols_correlacao:
 correlation_matrix = df[cols_correlacao].corr().round(2)
 
 # ==============================================
-# 4. CONFIGURAÇÃO DA INTERFACE DO DASHBOARD
+# 5. CONFIGURAÇÃO DA INTERFACE DO DASHBOARD
 # ==============================================
-
 # Configuração da barra lateral
-with st.sidebar:  # Tudo aqui dentro vai na sidebar
+with st.sidebar:
     st.image('assets/logo laboratório.png', width=210)  # Exibe logo
-    st.subheader('SISSER - Sistema de Subvenção Econômica')  # Título
+    st.subheader('SISSER - Sistema de Subvenção Econômica')
     
     # Dropdown para selecionar tipo de análise
     analise_tipo = st.selectbox(
@@ -120,73 +118,62 @@ with st.sidebar:  # Tudo aqui dentro vai na sidebar
 
 # Título principal do dashboard
 st.title("Análise de Seguros Agrícolas - SISSER")
-
-# Subtítulo com markdown
 st.markdown("""
 **Sistema de Subvenção Econômica ao Prêmio do Seguro Rural**  
 *Dados atualizados em 2023*
 """)
-
-# Linha divisória
 st.divider()
 
 # ==============================================
-# 5. VISUALIZAÇÕES PRINCIPAIS
+# 6. VISUALIZAÇÕES PRINCIPAIS
 # ==============================================
-
 # --------------------------
-# 5.1 MAPA INTERATIVO
+# 6.1 MAPA INTERATIVO
 # --------------------------
 st.header("Distribuição Geográfica")
 
-# Bloco try-except para tratamento elegante de erros
 try:
-    # Define qual coluna usar no hover (tooltip)
+    # Define qual coluna usar no hover
     hover_col = 'NM_UF' if 'NM_UF' in gdf_merged.columns else 'SIGLA_UF'
     
     # Cria mapa coroplético com Plotly Express
+    # NOTE: Convertendo o GeoDataFrame para string GeoJSON usando to_json()
     fig_map = px.choropleth(
-        gdf_merged,  # Dados
-        geojson=gdf_merged.geometry,  # Geometrias dos polígonos
-        locations=gdf_merged.index,  # Índice como referência
-        color='numero_seguros',  # Variável para coloração
-        hover_name=hover_col,  # Dado mostrado em destaque
-        hover_data=['area_total', 'valor_total'],  # Dados adicionais no tooltip
-        color_continuous_scale="Blues",  # Escala de cores
-        projection="mercator",  # Projeção cartográfica
+        gdf_merged,
+        geojson=gdf_merged.to_json(),   # Alteração para corrigir o erro de multi-part geometries
+        locations='SIGLA_UF',           # Usando a chave que faz match com o GeoJSON
+        featureidkey="properties.SIGLA_UF",
+        color='numero_seguros',
+        hover_name=hover_col,
+        hover_data=['area_total', 'valor_total'],
+        color_continuous_scale="Blues",
+        projection="mercator",
         title="Número de Apólices por Estado"
     )
     
-    # Ajustes de visualização do mapa
     fig_map.update_geos(
-        fitbounds="locations",  # Ajusta zoom para caber todos os estados
-        visible=False  # Oculta linhas de grade/contorno
+        fitbounds="locations", 
+        visible=False
     )
     
-    # Remove margens para melhor aproveitamento de espaço
     fig_map.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
-    
-    # Personaliza o texto do tooltip
     fig_map.update_traces(
-        hovertemplate="<b>%{hovertext}</b><br>"  # Nome do estado em negrito
-                     "Apólices: %{z}<br>"  # Número de apólices
-                     "Área: %{customdata[0]:,.2f} ha<br>"  # Área formatada
-                     "Valor: R$ %{customdata[1]:,.2f}"  # Valor formatado
+        hovertemplate="<b>%{hovertext}</b><br>" 
+                     "Apólices: %{z}<br>"
+                     "Área: %{customdata[0]:,.2f} ha<br>"
+                     "Valor: R$ %{customdata[1]:,.2f}"
     )
     
-    # Exibe o mapa no dashboard
-    st.plotly_chart(fig_map, use_container_width=True)  # Ocupa toda largura
+    st.plotly_chart(fig_map, use_container_width=True)
     
 except Exception as e:
-    # Se ocorrer erro, mostra mensagem e informações para debug
     st.error(f"Erro ao gerar o mapa: {str(e)}")
     st.write("Dados disponíveis para mapeamento:", gdf_merged.columns.tolist())
 
-# Linha divisória
 st.divider()
 
 # --------------------------
-# 5.2 ANÁLISE POR RAZÃO SOCIAL OU ESTADO
+# 6.2 ANÁLISE POR RAZÃO SOCIAL OU ESTADO
 # --------------------------
 if analise_tipo == "Razão Social":
     st.header("Análise por Razão Social")
@@ -199,99 +186,78 @@ if analise_tipo == "Razão Social":
         'Valor Total': 'valor_total'
     }
     
-    # Dropdown para selecionar métrica
     selected_metric = st.selectbox(
         "Selecione a Métrica", 
         options=list(metric_options.keys())
     )
     
-    # Obtém a coluna correspondente à métrica selecionada
     metric_column = metric_options[selected_metric]
-    
-    # Ordena os dados pela métrica selecionada
     df_sorted = df_razao_social.sort_values(by=metric_column, ascending=False)
     
     # Cria gráfico de barras
     fig_bar = px.bar(
-        df_sorted,  # Dados ordenados
-        x='NM_RAZAO_SOCIAL',  # Eixo X: razão social
-        y=metric_column,  # Eixo Y: métrica selecionada
-        title=f'{selected_metric} por Razão Social',  # Título dinâmico
+        df_sorted,
+        x='NM_RAZAO_SOCIAL',
+        y=metric_column,
+        title=f'{selected_metric} por Razão Social',
         labels={
             'NM_RAZAO_SOCIAL': 'Razão Social', 
             metric_column: selected_metric
-        }  # Rótulos personalizados
+        }
     )
     
-    # Exibe o gráfico
     st.plotly_chart(fig_bar, use_container_width=True)
     
-    # Seção de métricas resumidas
     st.subheader("Principais Indicadores")
-    
-    # Cria 4 colunas para exibir os cards
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
         st.metric("Total Empresas", len(df_razao_social))
-    
     with col2:
         st.metric("Total Apólices", df_razao_social['numero_seguros'].sum())
-    
     with col3:
         st.metric("Área Total (ha)", f"{df_razao_social['area_total'].sum():,.2f}")
-    
     with col4:
         st.metric("Valor Total (R$)", f"{df_razao_social['valor_total'].sum():,.2f}")
     
     st.divider()
 
 # --------------------------
-# 5.3 GRÁFICO DE CORRELAÇÕES
+# 6.3 GRÁFICO DE CORRELAÇÕES
 # --------------------------
 st.header("Análise de Correlações")
-
-# Cria mapa de calor das correlações
 fig_heatmap = px.imshow(
-    correlation_matrix,  # Matriz de correlação
-    text_auto=True,  # Mostra valores nas células
-    color_continuous_scale="Blues",  # Escala de cores
-    title="Correlação entre Variáveis",  # Título
-    width=800,  # Largura
-    height=600  # Altura
+    correlation_matrix,
+    text_auto=True,
+    color_continuous_scale="Blues",
+    title="Correlação entre Variáveis",
+    width=800,
+    height=600
 )
-
-# Exibe o gráfico
 st.plotly_chart(fig_heatmap, use_container_width=True)
-
-# Texto explicativo
 st.markdown("""
 **Interpretação:**
 - Valores próximos a **1** indicam forte correlação positiva
 - Valores próximos a **-1** indicam forte correlação negativa
 - Valores próximos a **0** indicam pouca ou nenhuma correlação
 """)
-
 st.divider()
 
 # --------------------------
-# 5.4 DISTRIBUIÇÃO DE VALORES (ABAS)
+# 6.4 DISTRIBUIÇÃO DE VALORES (ABAS)
 # --------------------------
 st.header("Distribuição de Valores")
-
-# Cria abas para diferentes visualizações
 tab1, tab2, tab3 = st.tabs(["Área Total", "Valor Total", "Apólices por Estado"])
 
-with tab1:  # Conteúdo da primeira aba
+with tab1:
     fig_area = px.pie(
         df_razao_social,
-        names='NM_RAZAO_SOCIAL',  # Nomes das fatias
-        values='area_total',  # Valores das fatias
+        names='NM_RAZAO_SOCIAL',
+        values='area_total',
         title='Distribuição da Área Total por Empresa'
     )
     st.plotly_chart(fig_area, use_container_width=True)
 
-with tab2:  # Conteúdo da segunda aba
+with tab2:
     fig_valor = px.pie(
         df_razao_social,
         names='NM_RAZAO_SOCIAL',
@@ -300,21 +266,20 @@ with tab2:  # Conteúdo da segunda aba
     )
     st.plotly_chart(fig_valor, use_container_width=True)
 
-with tab3:  # Conteúdo da terceira aba
+with tab3:
     fig_estado = px.bar(
         df_estado.sort_values('numero_seguros', ascending=False),
-        x='SG_UF_PROPRIEDADE',  # Estados no eixo X
-        y='numero_seguros',  # Número de apólices no eixo Y
+        x='SG_UF_PROPRIEDADE',
+        y='numero_seguros',
         title='Número de Apólices por Estado'
     )
     st.plotly_chart(fig_estado, use_container_width=True)
 
-# ==============================================
-# 6. RODAPÉ E INFORMAÇÕES ADICIONAIS
-# ==============================================
 st.divider()
 
-# Informações de rodapé
+# ==============================================
+# 7. RODAPÉ E INFORMAÇÕES ADICIONAIS
+# ==============================================
 st.markdown("""
 **Fonte dos dados:** [SISSER](https://dados.gov.br/dados/conjuntos-dados/sisser-sistema-de-subvencao-economica-ao-premio-do-seguro-rural)  
 **Última atualização:** 2023  
